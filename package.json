@@ -1,0 +1,10 @@
+{
+  "name": "armory",
+  "version": "0.1.0",
+  "description": "CIPHER's pi extensions — custom tools, editor components, capability bridges (vision-delegate, browser-use, MCP bridge)",
+  "keywords": ["pi-package"],
+  "license": "MIT",
+  "pi": {
+    "extensions": ["./extensions"]
+  }
+}
