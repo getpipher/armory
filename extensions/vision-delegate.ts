@@ -101,12 +101,14 @@ export default function (pi: ExtensionAPI) {
     ];
     const messages = [{ role: "user", content, timestamp: Date.now() }];
 
+    if (ctx.hasUI) ctx.ui.notify(`vision-delegate: analyzing ${images.length} image(s) with ${VISION_MODEL} sub-agent…`, "info");
+
     let description = "";
     try {
       const res: any = await complete(
         model as any,
         { messages } as any,
-        { apiKey: auth.apiKey, headers: auth.headers } as any,
+        { apiKey: auth.apiKey, headers: auth.headers, reasoningEffort: "off" } as any,
       );
       description = (res?.content ?? [])
         .filter((c: any) => c.type === "text")
@@ -122,7 +124,7 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    if (ctx.hasUI) ctx.ui.notify(`vision-delegate: ${images.length} image(s) analyzed by ${VISION_MODEL} sub-agent`, "info");
+    if (ctx.hasUI) ctx.ui.notify(`vision-delegate: done — ${images.length} image(s) analyzed`, "info");
     return {
       message: {
         customType: "vision-delegate",
