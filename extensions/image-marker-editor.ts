@@ -1,63 +1,46 @@
 /**
- * image-marker-editor — live inline `[image-N]` tokens when pasting images.
+ * image-marker-editor — render pasted-image temp paths as inline `[image-N]`.
  *
- * Wraps the default editor (extends CustomEditor so ALL app keybindings still
- * work: escape, ctrl+d, model switching, text editing, etc.). On Ctrl+V
- * (app.clipboard.pasteImage):
- *   1. `super.handleInput(data)` runs the app's default handler — it reads the
- *      clipboard and attaches the image to the message (event.images). We do
- *      NOT override onPasteImage, so attachment still works.
- *   2. Then we insert a `[image-N]` marker at the cursor via insertTextAtCursor.
+ * pi's clipboard paste (`handleClipboardImagePaste`) saves the image to a
+ * temp file `pi-clipboard-<uuid>.<ext>` and inserts that PATH as text in the
+ * editor (it does not attach the image immediately — the path is the link).
+ * That raw path is ugly to look at. This editor renders any `pi-clipboard-*`
+ * path as a colored `[image-N]` token (visual only — the underlying text keeps
+ * the path so it still functions as the image link on submit). `vision-delegate`
+ * reads the `pi-clipboard-*` path from the prompt and delegates.
  *
- * So pasted images show inline as labeled `[image-N]` tokens (accent-colored),
- * and the marker number is derived from existing markers in the text (so it
- * stays correct across multi-paste and editor resets). The number matches the
- * order the app attaches images → vision-delegate maps `[image-N]` → Nth image.
- *
- * No readClipboardImage deep import (the app reads the clipboard). No breaking
- * the app's image attachment (super handles it). This is Phase 2 of the
- * vision-delegation design.
+ * Extends CustomEditor so all app keybindings/wiring stay intact. Only overrides
+ * `render` (no handleInput changes → paste behavior unchanged).
  */
 
 import { CustomEditor, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
+const CLIP_PATH = /[^\s]*pi-clipboard-[a-f0-9-]+\.(?:png|jpe?g|gif|webp)/gi;
+
 class ImageMarkerEditor extends CustomEditor {
-  private kb: any;
   private themeCapture: any;
 
   constructor(tui: any, theme: any, keybindings: any, options?: any) {
     super(tui, theme, keybindings, options);
-    this.kb = keybindings;
     this.themeCapture = theme;
   }
 
-  handleInput(data: string): void {
-    // Detect the paste-image key the same way CustomEditor does internally.
-    if (this.kb?.matches?.(data, "app.clipboard.pasteImage")) {
-      super.handleInput(data); // app reads clipboard + attaches image (onPasteImage)
-      // Derive the next marker number from existing [image-N] tokens in the text
-      // (self-correcting across editor resets / multi-paste).
-      const existing = (this.getText().match(/\[image-\d+\]/g) || []).length;
-      this.insertTextAtCursor?.(`[image-${existing + 1}]`);
-      this.tui?.requestRender?.();
-      return;
-    }
-    super.handleInput(data);
-  }
-
   render(width: number): string[] {
-    const lines = super.render(width);
     const fg = this.themeCapture?.fg;
-    if (!fg) return lines;
-    return lines.map((line) => line.replace(/\[image-\d+\]/g, (m) => fg("accent", m)));
+    let n = 0;
+    const repl = (_m: string): string => {
+      n++;
+      const marker = `[image-${n}]`;
+      return fg ? fg("accent", marker) : marker;
+    };
+    // Number per-render by occurrence order (stable across frames — positional).
+    return super.render(width).map((line) => line.replace(CLIP_PATH, repl));
   }
 }
 
 export default function (pi: ExtensionAPI) {
   pi.on("session_start", (_event: any, ctx: any) => {
-    if (!ctx.hasUI) return; // editor only exists in TUI/RPC, not print mode
-    // Replace the default editor with our marker-aware one. Extends CustomEditor
-    // so all app keybindings + wiring (onPasteImage, actionHandlers) still apply.
+    if (!ctx.hasUI) return; // editor only in TUI/RPC
     ctx.ui.setEditorComponent((tui: any, theme: any, kb: any) => new ImageMarkerEditor(tui, theme, kb));
   });
 }
