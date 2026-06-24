@@ -10,8 +10,5 @@
     "extensions": [
       "./extensions"
     ]
-  },
-  "scripts": {
-    "test": "node test/todo-store.test.mts"
   }
 }
