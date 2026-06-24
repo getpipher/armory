@@ -2,9 +2,16 @@
   "name": "armory",
   "version": "0.1.0",
   "description": "CIPHER's pi extensions — custom tools, editor components, capability bridges (vision-delegate, browser-use, MCP bridge)",
-  "keywords": ["pi-package"],
+  "keywords": [
+    "pi-package"
+  ],
   "license": "MIT",
   "pi": {
-    "extensions": ["./extensions"]
+    "extensions": [
+      "./extensions"
+    ]
+  },
+  "scripts": {
+    "test": "node test/todo-store.test.mts"
   }
 }
