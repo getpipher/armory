@@ -1,44 +1,97 @@
 # armory
 
-CIPHER's **pi extensions** — the programmable capability layer for [pi](https://pi.dev). Sister to `getpipher/arsenal` (skills) and `getpipher/arsenal-private` (personal skills).
+A collection of [pi](https://pi.dev) extensions. Currently ships **armory-todo** — a *global, cross-session* TODO list for pi.
 
-## Contents
+[![npm](https://img.shields.io/npm/v/armory?color=cb3837&logo=npm)](https://www.npmjs.com/package/armory)
+[![pi-package](https://img.shields.io/badge/pi-package-blue)](https://pi.dev/packages)
 
-- `extensions/todo.ts` — **armory-todo**: a global, cross-session TODO list. Unlike the existing pi todo extensions (which are conversation-branch-scoped and survive only compaction/reload within one session), this one is backed by a single disk file (`~/.pi/agent/todo.json`) so a TODO added in session A is visible in any session B. It also auto-injects an `## Open TODOs` block into the system prompt on every `before_agent_start`, so a fresh session starts proactively aware of pending work. Surface: `todo` tool (model CRUD) + `/todo` slash command (human triage). See [`docs/todo-SPEC.md`](docs/todo-SPEC.md).
-- `extensions/vision-delegate.ts` — image understanding via a scoped vision sub-agent. The primary chat model never changes; when images are attached (clipboard paste, `-p @file`, or interactive `@<image-path>`), a vision model is called in an isolated `complete()` (image + focused prompt only — never the session history) and the text description is injected back for the primary model to answer with. No model swap, no context overflow. Generates `[image-N]` positional markers for multi-image prompts.
+---
 
 ## armory-todo
 
-```bash
-pi install git:github.com/getpipher/armory      # then restart pi
-/todo                                          # list open TODOs
-/todo add decouple global rules into AGENTS.md  # quick add
-```
+A TODO list that **survives across all your pi sessions** — not just within one.
 
-The model can add/list/complete TODOs via the `todo` tool when you say "put this in our TODO" / "show me the TODO". Store: `~/.pi/agent/todo.json` (override `TODO_STORE_PATH`). Never put secrets in a TODO — the text is injected into the system prompt and reaches the model provider.
+### The problem
 
-## Install
+pi sessions are ephemeral conversation branches. A TODO you tell to session A is invisible to session B unless you manually write it to a notes file and remember to read it next time. Every existing pi todo extension (`@juicesharp/rpiv-todo`, `@xynogen/pix-todo`, `@gonrocca/zero-pi-todo`, …) is **conversation-branch-scoped** — they persist via pi's `appendEntry()` and survive compaction + `/reload` *within a single session*. None bridge across separate sessions, and none make a fresh session aware of pending work on its own.
+
+`armory-todo` is the other shape: a single disk file that **every** session reads, plus an **auto-injected** "Open TODOs" block in the system prompt so a fresh session starts already aware.
+
+| | survives compaction/reload *within* a session | survives across *separate* sessions | auto-surfaced in every new session |
+|---|:---:|:---:|:---:|
+| branch-scoped todo extensions | ✅ | ❌ | ❌ |
+| **armory-todo** | ✅ | ✅ | ✅ |
+
+### Install
 
 ```bash
 pi install git:github.com/getpipher/armory
 ```
 
-## Consume in pi
+Then restart pi (or `/reload`). Or add to `~/.pi/agent/settings.json`:
 
 ```json
-// ~/.pi/agent/settings.json
 { "packages": ["git:github.com/getpipher/armory"] }
 ```
 
-Or for local development:
-```json
-{ "packages": ["/Users/rector/local-dev/armory"] }
+### Usage
+
+**Say it naturally** — the model calls the `todo` tool:
+
+> "put this in our TODO: decouple global rules into AGENTS.md"
+> "show me the TODO" → "mark td-… done"
+
+**Slash command** for quick human triage:
+
+```
+/todo                    list open + in-progress TODOs
+/todo all                include done/cancelled
+/todo add <text>         quick add (priority: med)
+/todo done <id>          mark done
+/todo rm <id>            cancel (tombstone)
+/todo clean              clear all done
+/todo path               show the store file path
 ```
 
-## Vision model config
+**The `todo` tool** (model-callable):
 
-`vision-delegate` calls `ollama/qwen3.5:cloud` by default (configured in `~/.pi/agent/models.json`). Change `VISION_PROVIDER` / `VISION_MODEL` at the top of the extension to use a different vision model (e.g. a frontier multimodal model via OpenRouter).
+| action | params | effect |
+|---|---|---|
+| `list` | `statusFilter?`, `projectFilter?`, `tagFilter?` | matching TODOs (default: open + in_progress) |
+| `add` | `text`, `project?`, `tags?`, `priority?`, `source?` | create a TODO |
+| `update` | `id`, `text?`, `priority?`, `status?`, `project?`, `tags?` | edit a TODO |
+| `complete` | `id` | mark done |
+| `delete` | `id` | cancel (tombstone) |
+| `clear` | `status?` (default `done`) | bulk-clear a status |
+
+Each TODO carries `id, text, project, tags, priority (low|med|high|critical), status (open|in_progress|done|cancelled), source, createdAt, updatedAt, closedAt`.
+
+### How it works
+
+- **Disk store** — `~/.pi/agent/todo.json`, atomic `0600` writes, corrupt-file auto-recovery, `version: 1` schema. Not pi session entries, so it outlives any conversation.
+- **`todo` tool** — model CRUD (above).
+- **`/todo` command** — human triage (above).
+- **Auto-inject** — on every `before_agent_start`, a compact `## Open TODOs (N)` block (titles + ids, capped at 15, sorted by priority) is appended to the system prompt, so the agent starts every turn already aware of pending work. Mutations refresh it on the next turn.
+
+Full design + decisions: [`docs/todo-SPEC.md`](docs/todo-SPEC.md).
+
+### Configuration
+
+| env var | default | purpose |
+|---|---|---|
+| `TODO_STORE_PATH` | `~/.pi/agent/todo.json` | override the store location (useful for tests / multiple profiles) |
+
+Run the store tests: `npm test` (24/24).
+
+### Security
+
+- Store file is `0600`. Atomic write (temp + rename); a corrupt file is backed up to `todo.json.bad-<ts>` and a fresh store starts — the extension never crashes your session.
+- **Never put secrets in a TODO.** TODO text is injected into the system prompt and therefore reaches your model provider — same rule as `AGENTS.md` / context files.
+
+## Other / experimental
+
+`extensions/.disabled/vision-delegate.ts` — an earlier experiment in scoped vision delegation (a vision sub-agent describes attached images without swapping the primary model). Currently **disabled**: the community [`pi-vision-tool`](https://www.npmjs.com/package/pi-vision-tool) package is used instead. Kept in `.disabled/` for reference; not loaded by the package.
 
 ## License
 
-MIT — shared as sadaqah jariyah.
+MIT.
